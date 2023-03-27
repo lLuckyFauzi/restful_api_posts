@@ -55,16 +55,19 @@ app.use((error, req, res, next) => {
   console.log(error);
   const status = error.statusCode;
   const message = error.message;
-  const data = error.data;
-  res.status(status).json({ message: message, data: data });
+  res.status(status).json({ message: message, errorCode: status });
 });
 
 mongoose
   .connect(
     "mongodb+srv://Lynne:kookys@cluster0.tltsg18.mongodb.net/messages?retryWrites=true&w=majority"
   )
-  .then((results) => {
-    app.listen(4000);
+  .then((result) => {
+    const server = app.listen(4000);
+    const io = require("./socket").init(server);
+    io.on("connection", (socket) => {
+      console.log("Client Connected!");
+    });
   })
   .catch((err) => {
     console.log(err);
