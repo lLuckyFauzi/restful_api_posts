@@ -5,9 +5,13 @@ const bodyParser = require("body-parser");
 const mongoose = require("mongoose");
 const multer = require("multer");
 const { v4: uuidv4 } = require("uuid");
+const { graphqlHTTP } = require("express-graphql");
+const { clearImage } = require("./utils/file");
 
-const feedRoutes = require("./routes/feed");
-const authRoutes = require("./routes/auth");
+const graphqlSchema = require("./graphql/schema");
+const graphqlResolver = require("./graphql/resolvers");
+
+const auth = require("./middleware/auth");
 
 const app = express();
 
@@ -16,7 +20,7 @@ const fileStorage = multer.diskStorage({
     cb(null, "images");
   },
   filename: (req, file, cb) => {
-    cb(null, uuidv4() + file.originalname);
+    cb(null, uuidv4() + "-" + file.originalname);
   },
 });
 
@@ -45,11 +49,51 @@ app.use((req, res, next) => {
     "GET, POST, PUT, PATCH, DELETE"
   );
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  if (req.method === "OPTIONS") {
+    res.sendStatus(200);
+  }
   next();
 });
 
-app.use("/feed", feedRoutes);
-app.use("/auth", authRoutes);
+app.use(auth);
+
+app.put("/post-image", (req, res, next) => {
+  if (!req.isAuth) {
+    const error = new Error("Not authenticated!");
+    error.status = 401;
+    throw error;
+  }
+  if (!req.file) {
+    return res.status(200).json({ message: "No file!" });
+  }
+  if (req.body.oldPath) {
+    clearImage(req.body.oldPath);
+  }
+
+  return res.status(201).json({
+    message: "File stored!",
+    filePath: req.file.path.replace("\\", "/"),
+  });
+});
+
+app.use(
+  "/graphql",
+  graphqlHTTP({
+    schema: graphqlSchema,
+    rootValue: graphqlResolver,
+    graphiql: true,
+    formatError(err) {
+      if (!err.originalError) {
+        return err;
+      }
+      const data = err.originalError.data;
+      const message = err.message || "Some Error!";
+      const code = err.originalError.code || 500;
+
+      return { message: message, status: code, data: data };
+    },
+  })
+);
 
 app.use((error, req, res, next) => {
   console.log(error);
@@ -63,11 +107,7 @@ mongoose
     "mongodb+srv://Lynne:kookys@cluster0.tltsg18.mongodb.net/messages?retryWrites=true&w=majority"
   )
   .then((result) => {
-    const server = app.listen(4000);
-    const io = require("./socket").init(server);
-    io.on("connection", (socket) => {
-      console.log("Client Connected!");
-    });
+    app.listen(4000);
   })
   .catch((err) => {
     console.log(err);
